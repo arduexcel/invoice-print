@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="ku" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>سیستەمی وەسڵی وێستگە</title>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
+    
+    <style>
+        :root { --primary: #3498db; --success: #27ae60; --danger: #e74c3c; --dark: #2c3e50; --warning: #f39c12; --parking: #9b59b6; }
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #f4f7f6; margin: 0; padding: 0; }
+
+        #login-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(44, 62, 80, 0.98); display: flex; justify-content: center; align-items: center; z-index: 9999; }
+        .login-box { background: white; padding: 40px; border-radius: 15px; width: 350px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
+
+        .container { max-width: 550px; margin: 40px auto; background: white; padding: 30px; border-radius: 12px; position: relative; box-shadow: 0 5px 15px rgba(0,0,0,0.05); }
+        .top-bar { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 25px; }
+        
+        button { cursor: pointer; font-family: inherit; font-weight: bold; border: none; transition: 0.2s; border-radius: 6px; }
+        .logout-btn { background: var(--danger); color: white; padding: 8px 15px; }
+        .report-btn { background: var(--dark); color: white; padding: 8px 15px; }
+        .parking-btn { background: var(--parking); color: white; padding: 8px 15px; }
+        .parking-active { background: #6c3483 !important; border: 2px solid white; }
+
+        .form-group { margin-bottom: 15px; position: relative; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; color: #555; }
+        input, select { width: 100%; padding: 12px; border: 2px solid #eee; border-radius: 8px; box-sizing: border-box; font-size: 16px; outline: none; }
+        input[readonly] { background-color: #f9f9f9; }
+        
+        #duplicate-selector { display: none; margin-bottom: 15px; background: #fff3cd; padding: 10px; border-radius: 8px; border: 1px solid #ffeeba; }
+
+        .half-price-btn { position: absolute; left: 10px; top: 35px; background: var(--warning); color: white; padding: 5px 10px; font-size: 12px; display: none; }
+        .btn-full { width: 100%; padding: 15px; background: var(--primary); color: white; font-size: 18px; margin-top: 20px; }
+        .btn-full:disabled { background: #bdc3c7; cursor: not-allowed; }
+
+        #report-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 10000; justify-content: center; align-items: center; }
+        .modal-content { background: white; padding: 25px; border-radius: 12px; width: 95%; max-width: 850px; max-height: 85vh; overflow-y: auto; }
+        .report-tabs { display: flex; gap: 10px; margin-bottom: 15px; }
+        .tab-btn { flex: 1; padding: 10px; background: #eee; }
+        .tab-btn.active { background: var(--primary); color: white; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: center; font-size: 14px; }
+        .total-box { margin-top: 15px; padding: 15px; background: var(--success); color: white; text-align: center; font-weight: bold; border-radius: 8px; }
+
+        #invoice-print { display: none; }
+        @media print {
+            body * { visibility: hidden; }
+            #invoice-print, #invoice-print * { visibility: visible; }
+            #invoice-print { display: block !important; width: 80mm; text-align: center; direction: rtl; position: absolute; top: 0; left: 0; }
+            .print-line { border-bottom: 1px dashed #000; margin: 10px 0; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="login-overlay">
+    <div class="login-box">
+        <h2>چوونە ژوورەوە</h2>
+        <select id="userSelect" style="margin-bottom:20px;"></select>
+        <button onclick="login()" style="width:100%; padding:14px; background:var(--primary); color:white;">داخڵبوون</button>
+    </div>
+</div>
+
+<div class="container" id="main-content" style="display: none;">
+    <div class="top-bar">
+        <button class="logout-btn" onclick="logout()">چوونە دەرەوە</button>
+        <div style="display:flex; gap:5px;">
+            <button id="parkingModeBtn" class="parking-btn" onclick="toggleParkingMode()">🅿️ پارکینگ</button>
+            <button class="report-btn" onclick="openReport()">ڕاپۆرت</button>
+        </div>
+    </div>
+
+    <h2 id="main-title" style="text-align:center;">وەسڵی گواستنەوە</h2>
+
+    <div class="form-group">
+        <label>کارمەند</label>
+        <input type="text" id="currentUser" readonly>
+    </div>
+
+    <div class="form-group">
+        <label>ژمارەی ئۆتۆمبێل</label>
+        <input type="text" id="carNumberInput" oninput="searchCarLocally(this.value)" onkeypress="handleEnter(event)" placeholder="ژمارە لێرە بنوسە..." autofocus>
+    </div>
+
+    <div id="duplicate-selector">
+        <label style="color: #856404;">⚠️ چەند هێڵێک هەیە، یەکێک هەڵبژێرە:</label>
+        <select id="linePicker" onchange="selectManualLine(this.value)"></select>
+    </div>
+    
+    <div id="normal-info-fields">
+        <div class="form-group">
+            <label>هێڵ</label>
+            <input type="text" id="resLine" readonly placeholder="...">
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label>نرخ</label>
+        <input type="number" id="resPrice" readonly placeholder="0">
+        <button id="halfPriceBtn" class="half-price-btn" onclick="makeHalfPrice()">½ نیوە</button>
+    </div>
+
+    <div id="parking-phone-field" class="form-group" style="display: none;">
+        <label>ژمارەی مۆبایل</label>
+        <input type="text" id="resPhone" placeholder="07xx xxx xxxx">
+    </div>
+
+    <button class="btn-full" id="saveBtn" onclick="handleAction()">خەزن و پڕینت (Enter)</button>
+</div>
+
+<div id="report-modal">
+    <div class="modal-content">
+        <div style="display:flex; justify-content:space-between; margin-bottom:15px;">
+            <h3>ڕاپۆرتی ئەمڕۆ</h3>
+            <button onclick="closeModal()" style="background:var(--danger); color:white; padding:5px 12px;">داخستن</button>
+        </div>
+        <div class="report-tabs">
+            <button id="tabAll" class="tab-btn active" onclick="loadReport('all')">هەموو وەسڵەکان</button>
+            <button id="tabMine" class="tab-btn" onclick="loadReport('mine')">وەسڵەکانی خۆم</button>
+        </div>
+        <table>
+            <thead><tr><th>کات</th><th>ژمارە</th><th>هێڵ</th><th>کارمەند</th><th>نرخ</th></tr></thead>
+            <tbody id="report-table-body"></tbody>
+        </table>
+        <div id="totalAmountBox" class="total-box"></div>
+    </div>
+</div>
+
+<div id="invoice-print">
+    <h3 id="p-title">وەسڵ</h3>
+    <div class="print-line"></div>
+    <p>کات: <span id="p-date"></span></p>
+    <p>کارمەند: <span id="p-user"></span></p>
+    <div class="print-line"></div>
+    <h1 id="p-num" style="font-size: 40px; margin: 10px 0;"></h1>
+    <p id="p-line-row">هێڵ: <b id="p-line"></b></p>
+    <p id="p-phone-row" style="display:none;">مۆبایل: <b id="p-phone"></b></p>
+    <div class="print-line"></div>
+    <h2 id="p-price"></h2>
+</div>
+
+<script>
+    const firebaseConfig = {
+        apiKey: "AIzaSyCuUstd-6d0E-EbmQipv2mWk-bA55ajpQ0",
+        authDomain: "car-system-4594d.firebaseapp.com",
+        projectId: "car-system-4594d",
+        storageBucket: "car-system-4594d.firebasestorage.app",
+        messagingSenderId: "719030469585",
+        appId: "1:719030469585:web:7a23645b9e684b727dd6f0"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    let allCars = [];
+    let isParkingActive = false;
+
+    window.onload = async function() {
+        const empSnap = await db.collection("Employees").get();
+        const select = document.getElementById('userSelect');
+        select.innerHTML = '<option value="">هەڵبژاردنی کارمەند...</option>';
+        empSnap.forEach(doc => {
+            let opt = document.createElement('option');
+            opt.value = doc.data().name; opt.innerHTML = doc.data().name;
+            select.appendChild(opt);
+        });
+        const carSnap = await db.collection("Cars").get();
+        allCars = carSnap.docs.map(doc => doc.data());
+    };
+
+    function searchCarLocally(num) {
+        if(isParkingActive || !num) { resetFields(); return; }
+        const matches = allCars.filter(c => String(c.number) === String(num));
+        const selector = document.getElementById('duplicate-selector');
+        const linePicker = document.getElementById('linePicker');
+
+        if(matches.length > 1) {
+            selector.style.display = "block";
+            linePicker.innerHTML = '<option value="">هێڵەکە دیاری بکە...</option>';
+            matches.forEach((car, index) => {
+                linePicker.innerHTML += `<option value="${index}">${car.line} (${car.price})</option>`;
+            });
+            resetFields();
+        } else if(matches.length === 1) {
+            selector.style.display = "none";
+            setCarData(matches[0]);
+        } else {
+            selector.style.display = "none";
+            resetFields();
+        }
+    }
+
+    function setCarData(car) {
+        document.getElementById('resLine').value = car.line;
+        document.getElementById('resPrice').value = car.price;
+        document.getElementById('halfPriceBtn').style.display = 'block';
+    }
+
+    function selectManualLine(index) {
+        if(index === "") return;
+        const num = document.getElementById('carNumberInput').value;
+        const matches = allCars.filter(c => String(c.number) === String(num));
+        setCarData(matches[index]);
+    }
+
+    async function handleAction() {
+        const saveBtn = document.getElementById('saveBtn');
+        const num = document.getElementById('carNumberInput').value;
+        const price = document.getElementById('resPrice').value;
+        const line = isParkingActive ? "پارکینگ" : document.getElementById('resLine').value;
+        const uName = document.getElementById('currentUser').value;
+
+        if(!num || !price || !line || saveBtn.disabled) return;
+
+        saveBtn.disabled = true;
+        saveBtn.innerText = "پشکنین دەکات...";
+
+        const today = new Date().toLocaleDateString('en-CA');
+
+        try {
+            const duplicateCheck = await db.collection("Invoices")
+                .where("searchDate", "==", today)
+                .where("carNumber", "==", num)
+                .where("line", "==", line)
+                .get();
+
+            if (!duplicateCheck.empty) {
+                alert("ئەم ئۆتۆمبێلە پێشتر لەم هێڵەدا وەسڵی بۆ بڕاوە!");
+                saveBtn.disabled = false;
+                saveBtn.innerText = "خەزن و پڕینت (Enter)";
+                return;
+            }
+
+            const data = {
+                employee: uName,
+                carNumber: num,
+                price: price,
+                phone: isParkingActive ? document.getElementById('resPhone').value : "",
+                isParking: isParkingActive,
+                line: line,
+                searchDate: today,
+                date: new Date().toLocaleString('ku-IQ'),
+                timestamp: firebase.firestore.FieldValue.serverTimestamp()
+            };
+
+            await db.collection("Invoices").add(data);
+            
+            document.getElementById('p-title').innerText = isParkingActive ? "وەسڵی پارکینگ" : "وەسڵی گواستنەوە";
+            document.getElementById('p-num').innerText = num;
+            document.getElementById('p-line').innerText = data.line;
+            document.getElementById('p-price').innerText = price + " دینار";
+            document.getElementById('p-user').innerText = uName;
+            document.getElementById('p-date').innerText = data.date;
+            document.getElementById('p-phone-row').style.display = isParkingActive ? "block" : "none";
+            document.getElementById('p-phone').innerText = data.phone;
+            
+            window.print();
+            
+            document.getElementById('carNumberInput').value = "";
+            document.getElementById('resPhone').value = "";
+            document.getElementById('duplicate-selector').style.display = "none";
+            resetFields();
+            document.getElementById('carNumberInput').focus();
+
+        } catch(e) { alert("هەڵە ڕوویدا"); }
+        finally {
+            saveBtn.disabled = false;
+            saveBtn.innerText = "خەزن و پڕینت (Enter)";
+        }
+    }
+
+    function toggleParkingMode() {
+        isParkingActive = !isParkingActive;
+        const btn = document.getElementById('parkingModeBtn');
+        btn.classList.toggle('parking-active');
+        document.getElementById('main-title').innerText = isParkingActive ? "وەسڵی پارکینگ" : "وەسڵی گواستنەوە";
+        document.getElementById('parking-phone-field').style.display = isParkingActive ? "block" : "none";
+        document.getElementById('normal-info-fields').style.display = isParkingActive ? "none" : "block";
+        document.getElementById('resPrice').readOnly = !isParkingActive;
+        if(isParkingActive) {
+            document.getElementById('resPrice').value = "";
+            document.getElementById('resPrice').focus();
+        } else {
+            searchCarLocally(document.getElementById('carNumberInput').value);
+        }
+    }
+
+    function resetFields() {
+        document.getElementById('resLine').value = "";
+        document.getElementById('resPrice').value = "";
+        document.getElementById('halfPriceBtn').style.display = 'none';
+    }
+
+    function login() {
+        const u = document.getElementById('userSelect').value;
+        if(!u) return alert("کارمەند هەڵبژێرە");
+        document.getElementById('login-overlay').style.display = 'none';
+        document.getElementById('main-content').style.display = 'block';
+        document.getElementById('currentUser').value = u;
+    }
+
+    function logout() {
+        document.getElementById('login-overlay').style.display = 'flex';
+        document.getElementById('main-content').style.display = 'none';
+        document.getElementById('userSelect').value = "";
+        document.getElementById('carNumberInput').value = "";
+        if(isParkingActive) toggleParkingMode();
+        resetFields();
+    }
+
+    function handleEnter(e) { if(e.key === "Enter") handleAction(); }
+    function openReport() { document.getElementById('report-modal').style.display = 'flex'; loadReport('all'); }
+    function closeModal() { document.getElementById('report-modal').style.display = 'none'; }
+
+    async function loadReport(mode) {
+        const today = new Date().toLocaleDateString('en-CA');
+        const currentUser = document.getElementById('currentUser').value;
+        document.getElementById('tabAll').classList.toggle('active', mode === 'all');
+        document.getElementById('tabMine').classList.toggle('active', mode === 'mine');
+
+        const snap = await db.collection("Invoices").where("searchDate", "==", today).get();
+        const tbody = document.getElementById('report-table-body');
+        tbody.innerHTML = "";
+        let total = 0;
+
+        const docs = snap.docs.sort((a,b) => (b.data().timestamp?.seconds || 0) - (a.data().timestamp?.seconds || 0));
+        docs.forEach(doc => {
+            const d = doc.data();
+            if(mode === 'mine' && d.employee !== currentUser) return;
+            total += parseInt(d.price);
+            tbody.innerHTML += `<tr>
+                <td>${d.date.split(',')[1] || d.date}</td>
+                <td>${d.carNumber}</td>
+                <td>${d.line}</td>
+                <td>${d.employee}</td>
+                <td>${parseInt(d.price).toLocaleString()}</td>
+            </tr>`;
+        });
+        document.getElementById('totalAmountBox').innerText = "کۆی گشتی: " + total.toLocaleString() + " دینار";
+    }
+
+    function makeHalfPrice() {
+        const p = document.getElementById('resPrice');
+        p.value = Math.floor(p.value / 2);
+    }
+</script>
+</body>
+</html>
