@@ -38,8 +38,6 @@
         th, td { border: 1px solid #ddd; padding: 10px; text-align: center; font-size: 14px; }
         .total-box { margin-top: 15px; padding: 15px; background: var(--success); color: white; text-align: center; font-weight: bold; border-radius: 8px; display: none; }
 
-        .reprint-btn { background: var(--warning); color: #333; padding: 4px 10px; font-size: 12px; }
-
         #invoice-print { display: none; }
         @media print {
             body * { visibility: hidden; }
@@ -95,6 +93,11 @@
         <button id="halfPriceBtn" class="half-price-btn" onclick="makeHalfPrice()">½ نیوە</button>
     </div>
 
+    <div class="form-group">
+        <label>تێبینی</label>
+        <input type="text" id="resNote" placeholder="تێبینی لێرە بنووسە (ئارەزوومەندانە)...">
+    </div>
+
     <div id="parking-phone-field" class="form-group" style="display: none;">
         <label>ژمارەی مۆبایل</label>
         <input type="text" id="resPhone" placeholder="07xx xxx xxxx">
@@ -130,6 +133,7 @@
     <h1 id="p-num" style="font-size: 40px; margin: 10px 0;"></h1>
     <p id="p-line-row">هێڵ: <b id="p-line"></b></p>
     <p id="p-phone-row" style="display:none;">مۆبایل: <b id="p-phone"></b></p>
+    <p id="p-note-row" style="display:none;">تێبینی: <b id="p-note"></b></p>
     <div class="print-line"></div>
     <h2 id="p-price"></h2>
 </div>
@@ -187,8 +191,6 @@
     function setCarData(car) {
         document.getElementById('resLine').value = car.line;
         document.getElementById('resPrice').value = car.price;
-        
-        // مەرج: تەنها ئەگەر پاس بوو دوگمەی نیوە دەربکەوێت
         if (car.type === "پاس") {
             document.getElementById('halfPriceBtn').style.display = 'block';
         } else {
@@ -206,18 +208,15 @@
     function makeHalfPrice() {
         const pInput = document.getElementById('resPrice');
         let currentPrice = parseInt(pInput.value);
-        
-        if(currentPrice === 6500) {
-            pInput.value = 3000;
-        } else if(currentPrice > 0) {
-            pInput.value = Math.floor(currentPrice / 2);
-        }
+        if(currentPrice === 6500) { pInput.value = 3000; }
+        else if(currentPrice > 0) { pInput.value = Math.floor(currentPrice / 2); }
     }
 
     async function handleAction() {
         const numInput = document.getElementById('carNumberInput');
         const num = numInput.value;
         const price = document.getElementById('resPrice').value;
+        const note = document.getElementById('resNote').value;
         const line = isParkingActive ? "پارکینگ" : document.getElementById('resLine').value;
         const uName = document.getElementById('currentUser').value;
 
@@ -227,6 +226,7 @@
             employee: uName,
             carNumber: num,
             price: price,
+            note: note,
             phone: isParkingActive ? document.getElementById('resPhone').value : "",
             isParking: isParkingActive,
             line: line,
@@ -240,6 +240,7 @@
         
         numInput.value = "";
         document.getElementById('resPhone').value = "";
+        document.getElementById('resNote').value = "";
         resetFields();
         numInput.focus();
     }
@@ -253,6 +254,16 @@
         document.getElementById('p-date').innerText = data.date;
         document.getElementById('p-phone-row').style.display = data.isParking ? "block" : "none";
         document.getElementById('p-phone').innerText = data.phone || "";
+        
+        // پیشاندانی تێبینی لە پڕینت ئەگەر هەبوو
+        const pNoteRow = document.getElementById('p-note-row');
+        if(data.note) {
+            pNoteRow.style.display = "block";
+            document.getElementById('p-note').innerText = data.note;
+        } else {
+            pNoteRow.style.display = "none";
+        }
+        
         window.print();
     }
 
@@ -273,7 +284,6 @@
         docs.forEach(doc => {
             const d = doc.data();
             if(mode === 'mine' && d.employee !== currentUser) return;
-            
             total += parseInt(d.price);
             tbody.innerHTML += `<tr>
                 <td>${d.date.split(',')[1] || d.date}</td>
@@ -281,7 +291,7 @@
                 <td>${d.line}</td>
                 <td>${d.employee}</td>
                 <td>${parseInt(d.price).toLocaleString()}</td>
-                <td><button class="reprint-btn" onclick='reprintFromReport(${JSON.stringify(d)})'>پڕینت</button></td>
+                <td><button class="reprint-btn" onclick='printInvoice(${JSON.stringify(d)})' style="background:var(--warning); padding:4px 8px;">پڕینت</button></td>
             </tr>`;
         });
 
@@ -292,8 +302,6 @@
             totalBox.style.display = "none";
         }
     }
-
-    function reprintFromReport(data) { printInvoice(data); }
 
     function toggleParkingMode() {
         isParkingActive = !isParkingActive;
