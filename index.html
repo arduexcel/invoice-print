@@ -36,9 +36,8 @@
         
         .btn-save { width: 100%; padding: 15px; background: var(--success); color: white; font-size: 18px; margin-top: 10px; }
 
-        /* ستایڵی ڕاپۆرت */
         #report-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 10000; justify-content: center; align-items: center; }
-        .modal-content { background: white; padding: 20px; border-radius: 12px; width: 95%; max-width: 600px; max-height: 85vh; overflow-y: auto; }
+        .modal-content { background: white; padding: 20px; border-radius: 12px; width: 95%; max-width: 650px; max-height: 85vh; overflow-y: auto; position: relative; }
         table { width: 100%; border-collapse: collapse; margin-top: 15px; }
         th, td { border: 1px solid #ddd; padding: 10px; text-align: center; font-size: 14px; }
         th { background: #f8f9fa; }
@@ -47,7 +46,7 @@
         @media print {
             body * { visibility: hidden; }
             #invoice-print, #invoice-print * { visibility: visible; }
-            #invoice-print { display: block !important; width: 58mm; text-align: center; position: absolute; top: 0; left: 0; }
+            #invoice-print { display: block !important; width: 58mm; text-align: center; position: absolute; top: 0; left: 0; padding: 5px; }
         }
     </style>
 </head>
@@ -57,7 +56,7 @@
     <div class="login-box">
         <img src="https://arduexcel.github.io/img/ms-icon-144x144.png" width="80">
         <h3>چوونە ژوورەوە</h3>
-        <select id="userSelect"><option>خەریکە بار دەبێت...</option></select>
+        <select id="userSelect"><option>بار دەبێت...</option></select>
         <button onclick="login()" style="width:100%; padding:12px; background:var(--primary); color:white; margin-top:15px;">داخڵبوون</button>
     </div>
 </div>
@@ -102,11 +101,12 @@
     <div class="modal-content">
         <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 2px solid #eee; padding-bottom: 10px;">
             <h3 style="margin:0;">ڕاپۆرتی کارەکانی ئەمڕۆم</h3>
-            <button onclick="closeReport()" style="background:var(--danger); color:white; padding:5px 12px; font-size:16px;">X</button>
+            <button onclick="closeReport()" style="background:var(--danger); color:white; padding:5px 15px; font-size:16px;">X</button>
         </div>
         <table>
             <thead>
                 <tr>
+                    <th>وەسڵ</th>
                     <th>کات</th>
                     <th>ژمارە</th>
                     <th>هێڵ</th>
@@ -120,17 +120,20 @@
 </div>
 
 <div id="invoice-print">
-    <img src="https://arduexcel.github.io/img/ms-icon-144x144.png" width="70">
-    <h3 id="p-title">وەسڵ</h3>
+    <img src="https://arduexcel.github.io/img/ms-icon-144x144.png" width="60">
+    <h4 id="p-title" style="margin:5px 0;">وەسڵ</h4>
+    <div style="border: 2px solid black; display: inline-block; padding: 2px 10px; margin: 5px 0; font-size: 22px; font-weight: bold;">
+        No: <span id="p-seq">0</span>
+    </div>
     <hr>
-    <p>کارمەند: <span id="p-user"></span></p>
-    <p>کات: <span id="p-date"></span></p>
-    <h1 id="p-num"></h1>
-    <p>جۆر: <b id="p-type"></b> | هێڵ: <b id="p-line"></b></p>
-    <p id="p-phone-row">مۆبایل: <b id="p-phone"></b></p>
-    <p id="p-note-row">تێبینی: <b id="p-note"></b></p>
+    <p style="font-size:12px; margin:2px 0;">کارمەند: <span id="p-user"></span></p>
+    <p style="font-size:12px; margin:2px 0;">کات: <span id="p-date"></span></p>
+    <h1 id="p-num" style="margin:10px 0; font-size:38px;"></h1>
+    <p style="margin:5px 0;">جۆر: <b id="p-type"></b> | هێڵ: <b id="p-line"></b></p>
+    <p id="p-phone-row" style="margin:5px 0;">مۆبایل: <b id="p-phone"></b></p>
+    <p id="p-note-row" style="margin:5px 0;">تێبینی: <b id="p-note"></b></p>
     <hr>
-    <h2 id="p-price"></h2>
+    <h2 id="p-price" style="margin:10px 0;"></h2>
 </div>
 
 <script>
@@ -175,9 +178,26 @@
         const today = new Date().toLocaleDateString('en-CA');
         const snap = await db.collection("Invoices").where("searchDate", "==", today).where("employee", "==", currentUser).get();
         let total = 0;
-        snap.forEach(doc => total += parseInt(doc.data().price));
+        snap.forEach(doc => total += parseInt(doc.data().price || 0));
         document.getElementById('myTotalMoney').innerText = total.toLocaleString() + " دینار";
         document.getElementById('myTotalCount').innerText = snap.size;
+    }
+
+    async function getDailySequence() {
+        const today = new Date().toLocaleDateString('en-CA');
+        const counterRef = db.collection("Counters").doc("daily_invoice_seq");
+
+        return await db.runTransaction(async (transaction) => {
+            const doc = await transaction.get(counterRef);
+            if (!doc.exists || doc.data().lastDate !== today) {
+                transaction.set(counterRef, { currentSeq: 1, lastDate: today });
+                return 1;
+            } else {
+                const newSeq = (doc.data().currentSeq || 0) + 1;
+                transaction.update(counterRef, { currentSeq: newSeq });
+                return newSeq;
+            }
+        });
     }
 
     async function openMyReport() {
@@ -191,16 +211,19 @@
         tbody.innerHTML = "";
         let total = 0;
 
-        snap.forEach(doc => {
+        // ڕیزکردنی داتاکان بەپێی کات لەناو براوزەرەکە بۆ ئەوەی پێویستمان بە Index نەبێت
+        const sortedDocs = snap.docs.sort((a, b) => (a.data().invoiceNo || 0) - (b.data().invoiceNo || 0));
+
+        sortedDocs.forEach(doc => {
             const d = doc.data();
-            total += parseInt(d.price);
-            const row = `<tr>
+            total += parseInt(d.price || 0);
+            tbody.innerHTML += `<tr>
+                <td style="font-weight:bold; color:var(--primary);">${d.invoiceNo || '-'}</td>
                 <td>${d.date.split(',')[1] || d.date}</td>
                 <td>${d.carNumber}</td>
                 <td>${d.line}</td>
-                <td>${d.price}</td>
+                <td>${parseInt(d.price).toLocaleString()}</td>
             </tr>`;
-            tbody.innerHTML += row;
         });
 
         document.getElementById('report-summary').innerText = `کۆی گشتی: ${total.toLocaleString()} دینار (${snap.size} وەسڵ)`;
@@ -227,7 +250,7 @@
         if(isParking || !num) return;
         const matches = allCars.filter(c => String(c.number) === String(num));
         if(matches.length >= 1) {
-            document.getElementById('resType').value = matches[0].type || "نادیار";
+            document.getElementById('resType').value = matches[0].type || "تایبەت";
             document.getElementById('resLine').value = matches[0].line;
             document.getElementById('resPrice').value = matches[0].price;
         } else { resetForm(); }
@@ -236,16 +259,20 @@
     function handleEnter(e) { if(e.key === "Enter") handleAction(); }
 
     async function handleAction() {
-        const num = document.getElementById('carNumberInput').value;
+        const numInput = document.getElementById('carNumberInput');
+        const num = numInput.value.trim();
         const price = document.getElementById('resPrice').value;
-        if(!num || !price) return;
+        if(!num || !price) return alert("تکایە هەموو خانەکان پڕ بکەرەوە");
+
+        const seqNum = await getDailySequence();
 
         const data = {
+            invoiceNo: seqNum,
             employee: currentUser,
             carNumber: num,
             price: price,
-            type: document.getElementById('resType').value,
-            line: document.getElementById('resLine').value,
+            type: document.getElementById('resType').value || "نادیار",
+            line: document.getElementById('resLine').value || "پارکینگ",
             phone: isParking ? document.getElementById('resPhone').value : "",
             note: document.getElementById('resNote').value,
             searchDate: new Date().toLocaleDateString('en-CA'),
@@ -255,7 +282,7 @@
 
         await db.collection("Invoices").add(data);
         
-        // Setup Print
+        document.getElementById('p-seq').innerText = seqNum;
         document.getElementById('p-title').innerText = isParking ? "وەسڵی پارکینگ" : "تێرمناڵی سه‌ره‌كی سلێمانی";
         document.getElementById('p-num').innerText = data.carNumber;
         document.getElementById('p-type').innerText = data.type;
@@ -270,16 +297,17 @@
 
         window.print();
         updateMyStats();
-        document.getElementById('carNumberInput').value = "";
+        
+        numInput.value = "";
         document.getElementById('resNote').value = "";
         document.getElementById('resPhone').value = "";
-        document.getElementById('carNumberInput').focus();
+        numInput.focus();
     }
 
     function resetForm() {
         document.getElementById('resType').value = "";
         document.getElementById('resLine').value = isParking ? "پارکینگ" : "";
-        document.getElementById('resPrice').value = isParking ? document.getElementById('resPrice').value : "";
+        document.getElementById('resPrice').value = "";
     }
 </script>
 </body>
