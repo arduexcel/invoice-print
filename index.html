@@ -34,20 +34,27 @@
         label { display: block; margin-bottom: 5px; font-weight: bold; }
         input, select { width: 100%; padding: 12px; border: 2px solid #eee; border-radius: 8px; font-size: 18px; outline: none; box-sizing: border-box; }
         
-        /* دوگمەی نیوەی نرخ */
-        .price-container { position: relative; display: flex; align-items: center; gap: 5px; }
-        .btn-half { 
-            background: var(--warning); 
-            color: white; 
-            padding: 10px; 
-            border-radius: 8px; 
-            font-size: 20px;
-            width: 60px;
-            height: 50px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+        /* لیستی هەڵبژاردنی هێڵ ئەگەر سەیارەکە لە دوو هێڵ بوو */
+        #multiMatchList {
+            display: none;
+            background: #fffbe6;
+            border: 1px solid #ffe58f;
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 12px;
         }
+        .match-item {
+            padding: 8px;
+            border-bottom: 1px solid #ddd;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+        }
+        .match-item:last-child { border: none; }
+        .match-item:hover { background: #fff1b8; }
+
+        .price-container { position: relative; display: flex; align-items: center; gap: 5px; }
+        .btn-half { background: var(--warning); color: white; padding: 10px; border-radius: 8px; font-size: 20px; width: 60px; height: 50px; display: flex; justify-content: center; align-items: center; }
 
         .btn-save { width: 100%; padding: 15px; background: var(--success); color: white; font-size: 18px; margin-top: 10px; }
 
@@ -90,8 +97,10 @@
 
     <div class="form-group">
         <label>ژمارەی ئۆتۆمبێل</label>
-        <input type="text" id="carNumberInput" oninput="searchCarLocally(this.value)" onkeypress="handleEnter(event)" placeholder="بنووسە..." autofocus>
+        <input type="text" id="carNumberInput" oninput="searchCarLocally(this.value)" onkeypress="handleEnter(event)" placeholder="بنووسە..." autofocus autocomplete="off">
     </div>
+
+    <div id="multiMatchList"></div>
 
     <div id="parking-fields" style="display: none;">
         <div class="form-group"><label>ژمارەی مۆبایل</label><input type="text" id="resPhone" placeholder="07xx xxx xxxx"></div>
@@ -195,28 +204,52 @@
         document.getElementById('login-overlay').style.display = 'flex';
     }
 
+    // فەنکشنی گەڕان کە پشتگیری چەند هێڵێک دەکات بۆ یەک ژمارە
     function searchCarLocally(num) {
+        const listDiv = document.getElementById('multiMatchList');
+        listDiv.innerHTML = "";
+        listDiv.style.display = "none";
+        
         if(isParking || !num) return;
+
         const matches = allCars.filter(c => String(c.number) === String(num));
-        if(matches.length >= 1) {
-            document.getElementById('resType').value = matches[0].type || "تایبەت";
-            document.getElementById('resLine').value = matches[0].line;
-            document.getElementById('resPrice').value = matches[0].price;
-        } else { resetForm(); }
+        
+        if(matches.length === 1) {
+            selectCarMatch(matches[0]);
+        } else if (matches.length > 1) {
+            listDiv.style.display = "block";
+            listDiv.innerHTML = "<p style='margin:5px 0; color:#856404; font-size:14px;'>ئەم ژمارەیە لە چەند هێڵێک هەیە، یەکێکیان هەڵبژێرە:</p>";
+            matches.forEach(m => {
+                const item = document.createElement('div');
+                item.className = 'match-item';
+                item.innerHTML = `<span><b>${m.line}</b> (${m.type})</span> <span>${m.price} د.ع</span>`;
+                item.onclick = () => selectCarMatch(m);
+                listDiv.appendChild(item);
+            });
+            resetFormOnlyFields();
+        } else {
+            resetForm();
+        }
     }
 
-    // فەنکشنی نوێ بۆ نیوەی نرخ
+    function selectCarMatch(car) {
+        document.getElementById('resType').value = car.type || "تایبەت";
+        document.getElementById('resLine').value = car.line;
+        document.getElementById('resPrice').value = car.price;
+        document.getElementById('multiMatchList').style.display = "none";
+    }
+
+    function resetFormOnlyFields() {
+        document.getElementById('resType').value = "";
+        document.getElementById('resLine').value = "";
+        document.getElementById('resPrice').value = "";
+    }
+
     function makeHalfPrice() {
         const priceInput = document.getElementById('resPrice');
         let currentPrice = parseInt(priceInput.value);
-        
-        if (!currentPrice || currentPrice <= 0) return alert("سەرەتا ژمارەی سەیارەکە داخڵ بکە");
-
-        if (currentPrice === 6500) {
-            priceInput.value = 3000;
-        } else {
-            priceInput.value = currentPrice / 2;
-        }
+        if (!currentPrice || currentPrice <= 0) return alert("سەرەتا ژمارەی سەیارەکە هەڵبژێرە");
+        priceInput.value = (currentPrice === 6500) ? 3000 : currentPrice / 2;
     }
 
     async function updateMyStats() {
@@ -248,7 +281,9 @@
         const numInput = document.getElementById('carNumberInput');
         const num = numInput.value.trim();
         const price = document.getElementById('resPrice').value;
-        if(!num || !price) return alert("تکایە هەموو خانەکان پڕ بکەرەوە");
+        const line = document.getElementById('resLine').value;
+
+        if(!num || !price || (!isParking && !line)) return alert("تکایە هەموو خانەکان پڕ بکەرەوە یان هێڵەکە هەڵبژێرە");
 
         const seqNum = await getDailySequence();
         const data = {
@@ -257,7 +292,7 @@
             carNumber: num,
             price: price,
             type: document.getElementById('resType').value || "نادیار",
-            line: document.getElementById('resLine').value || "پارکینگ",
+            line: line || "پارکینگ",
             phone: isParking ? document.getElementById('resPhone').value : "",
             note: document.getElementById('resNote').value,
             searchDate: new Date().toLocaleDateString('en-CA'),
@@ -286,8 +321,10 @@
         numInput.value = "";
         document.getElementById('resNote').value = "";
         document.getElementById('resPhone').value = "";
+        document.getElementById('multiMatchList').style.display = "none";
         numInput.focus();
         if(isParking) document.getElementById('resPrice').value = "";
+        resetFormOnlyFields();
     }
 
     function toggleParkingMode() {
@@ -295,6 +332,7 @@
         document.getElementById('parkingModeBtn').classList.toggle('parking-active');
         document.getElementById('normal-fields').style.display = isParking ? 'none' : 'block';
         document.getElementById('parking-fields').style.display = isParking ? 'block' : 'none';
+        document.getElementById('multiMatchList').style.display = "none";
         const pInput = document.getElementById('resPrice');
         pInput.readOnly = !isParking;
         if(isParking) { 
@@ -332,6 +370,7 @@
         document.getElementById('resType').value = "";
         document.getElementById('resLine').value = isParking ? "پارکینگ" : "";
         document.getElementById('resPrice').value = "";
+        document.getElementById('multiMatchList').style.display = "none";
     }
 </script>
 </body>
