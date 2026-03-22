@@ -64,6 +64,9 @@
         th { background: #f8f9fa; }
         .btn-del { background: var(--danger); color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; }
 
+        /* ستاڵی تایبەت بۆ وەسڵە سڕاوەکان */
+        .deleted-row { background-color: #ffdce0 !important; text-decoration: line-through; color: #a94442; }
+
         #invoice-print { display: none; }
         @media print {
             body * { visibility: hidden; }
@@ -192,7 +195,6 @@
         const carSnap = await db.collection("Cars").get();
         allCars = carSnap.docs.map(doc => doc.data());
 
-        // ئەگەر پێشتر چوبووە ژوورەوە، ڕاستەوخۆ دەست پێ بکات
         if(currentUser) {
             document.getElementById('login-overlay').style.display = 'none';
             document.getElementById('main-content').style.display = 'block';
@@ -262,9 +264,16 @@
         const today = new Date().toLocaleDateString('en-CA');
         const snap = await db.collection("Invoices").where("searchDate", "==", today).where("employee", "==", currentUser).get();
         let total = 0;
-        snap.forEach(doc => total += parseInt(doc.data().price || 0));
+        let activeCount = 0;
+        snap.forEach(doc => {
+            // تەنها ئەوانە کۆ بکەرەوە کە نەسڕاونەتەوە
+            if(!doc.data().isDeleted) {
+                total += parseInt(doc.data().price || 0);
+                activeCount++;
+            }
+        });
         document.getElementById('myTotalMoney').innerText = total.toLocaleString() + " دینار";
-        document.getElementById('myTotalCount').innerText = snap.size;
+        document.getElementById('myTotalCount').innerText = activeCount;
     }
 
     async function getDailySequence() {
@@ -302,6 +311,7 @@
             note: document.getElementById('resNote').value,
             searchDate: new Date().toLocaleDateString('en-CA'),
             date: new Date().toLocaleString('ku-IQ'),
+            isDeleted: false,
             timestamp: firebase.firestore.FieldValue.serverTimestamp()
         };
 
@@ -337,28 +347,38 @@
         const snap = await db.collection("Invoices").where("searchDate", "==", today).where("employee", "==", currentUser).get();
         const tbody = document.getElementById('report-body');
         tbody.innerHTML = "";
-        let total = 0;
+        let activeTotal = 0;
+        let activeCount = 0;
         const docs = [];
         snap.forEach(doc => docs.push({id: doc.id, ...doc.data()}));
         docs.sort((a, b) => (b.invoiceNo || 0) - (a.invoiceNo || 0));
 
         docs.forEach(d => {
-            total += parseInt(d.price || 0);
-            tbody.innerHTML += `<tr>
+            const isDel = d.isDeleted === true;
+            if(!isDel) {
+                activeTotal += parseInt(d.price || 0);
+                activeCount++;
+            }
+
+            tbody.innerHTML += `<tr class="${isDel ? 'deleted-row' : ''}">
                 <td><b>${d.invoiceNo}</b></td>
                 <td>${d.date.split(',')[1] || d.date}</td>
                 <td>${d.carNumber}</td>
                 <td>${d.type || '-'}</td>
                 <td>${d.line}</td>
                 <td>${parseInt(d.price).toLocaleString()}</td>
-                <td><button class="btn-del" onclick="deleteInvoice('${d.id}')">سڕینەوە</button></td>
+                <td>
+                    ${isDel ? 
+                        `<span style="font-size:10px;">سڕاوەتەوە: ${d.deleteReason}</span>` : 
+                        `<button class="btn-del" onclick="deleteInvoice('${d.id}')">سڕینەوە</button>`
+                    }
+                </td>
             </tr>`;
         });
-        document.getElementById('report-summary').innerText = `کۆی گشتی: ${total.toLocaleString()} دینار (${docs.length} وەسڵ)`;
+        document.getElementById('report-summary').innerText = `کۆی گشتی (کاراکان): ${activeTotal.toLocaleString()} دینار (${activeCount} وەسڵ)`;
         document.getElementById('report-modal').style.display = 'flex';
     }
 
-    // فەنکشنی سڕینەوە بە مەرجی نوسینی تێبینی
     async function deleteInvoice(id) {
         const reason = prompt("تکایە هۆکاری سڕینەوە بنوسە (مەرجە):");
         if (!reason || reason.trim().length < 3) {
@@ -366,19 +386,17 @@
             return;
         }
         
-        if(confirm("دڵنیای لە سڕینەوەی ئەم وەسڵە؟")) {
+        if(confirm("دڵنیای لە سڕینەوەی ئەم وەسڵە؟ (تەنها نیشانە دەکرێت و نامێنێتەوە)")) {
             try {
-                // گواستنەوەی بۆ بەشی سڕاوەکان (DeletedInvoices) بۆ ئەرشیف
-                const docRef = await db.collection("Invoices").doc(id).get();
-                await db.collection("DeletedLog").add({
-                    ...docRef.data(),
+                // تەنها Update دەکەین، ناسڕینەوە
+                await db.collection("Invoices").doc(id).update({
+                    isDeleted: true,
                     deleteReason: reason,
                     deletedBy: currentUser,
                     deleteTime: new Date().toLocaleString('ku-IQ')
                 });
                 
-                await db.collection("Invoices").doc(id).delete();
-                alert("وەسڵەکە سڕایەوە.");
+                alert("وەسڵەکە وەک سڕاوە نیشانە کرا.");
                 openMyReport();
                 updateMyStats();
             } catch (e) {
