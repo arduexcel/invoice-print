@@ -2,7 +2,7 @@
 <html lang="ku" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <title>سیستەمی وێستگە - وەشانی پێشکەوتوو</title>
+    <title>سیستەمی وێستگە - وەشانی کۆتایی و جێگیر</title>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
     
@@ -27,6 +27,7 @@
         .modal-content { background: white; padding: 20px; border-radius: 12px; width: 95%; max-height: 85vh; overflow-y: auto; }
         table { width: 100%; border-collapse: collapse; }
         th, td { border: 1px solid #ddd; padding: 8px; text-align: center; font-size: 13px; }
+        .canceled-row { background: #f9ebeb !important; color: #c0392b !important; text-decoration: line-through; }
         #invoice-print { display: none; }
         @media print {
             body * { visibility: hidden; }
@@ -83,7 +84,7 @@
 <div id="report-modal">
     <div class="modal-content">
         <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
-            <h3>ڕاپۆرتی کارەکان</h3>
+            <h3>ڕاپۆرتی کارەکانی ئەمڕۆ</h3>
             <button onclick="closeReport()" style="background:red; color:white; padding:5px 15px;">X</button>
         </div>
         <table>
@@ -105,7 +106,7 @@
 </div>
 
 <script>
-    // کۆنفیگی فایەربەیسەکانت (وەک خۆی جێگیری بکە)
+    // کۆنفیگی داتابەیسەکان
     const config1 = { apiKey: "AIzaSyCuUstd-6d0E-EbmQipv2mWk-bA55ajpQ0", authDomain: "car-system-4594d.firebaseapp.com", projectId: "car-system-4594d", storageBucket: "car-system-4594d.firebasestorage.app", messagingSenderId: "719030469585", appId: "1:719030469585:web:7a23645b9e684b727dd6f0" };
     const config2 = { apiKey: "AIzaSyAMI84_IuKUZVqc8ImMW7eahru20cTkjFM", authDomain: "sysam-k.firebaseapp.com", projectId: "sysam-k", storageBucket: "sysam-k.firebasestorage.app", messagingSenderId: "905972435434", appId: "1:905972435434:web:2501e11240523f8368ca93" };
 
@@ -132,95 +133,118 @@
             document.getElementById('login-overlay').style.display = 'none';
             document.getElementById('main-content').style.display = 'block';
             updateStats();
-            autoDeleteOldInvoices(); // بانگکردنی سڕینەوەی ئۆتۆماتیک لە کاتی دەستپێکردن
         }
     };
 
-    // --- فەنکشنی سڕینەوەی ئۆتۆماتیک بۆ فایەربەیسی دووەم (٢٠ کاتژمێر) ---
-    async function autoDeleteOldInvoices() {
-        try {
-            const cutoffTime = Date.now() - (20 * 60 * 60 * 1000); // ٢٠ کاتژمێر پێش ئێستا
-            const subColSnap = await db2.collection("Invoices").doc(today).collection("AllInvoices").get();
-            
-            subColSnap.forEach(async (doc) => {
-                const data = doc.data();
-                if (data.timestamp && data.timestamp.toMillis() < cutoffTime) {
-                    await db2.collection("Invoices").doc(today).collection("AllInvoices").doc(doc.id).delete();
-                    console.log("Invoice deleted from DB2 (Older than 20h):", doc.id);
-                }
-            });
-        } catch (e) { console.log("Auto-delete error:", e); }
+    function login() {
+        const name = document.getElementById('userSelect').value;
+        if(!name) return alert("ناو هەڵبژێرە");
+        currentUser = name;
+        localStorage.setItem("terminalUser", name);
+        document.getElementById('login-overlay').style.display = 'none';
+        document.getElementById('main-content').style.display = 'block';
+        updateStats();
     }
 
-    async function handleAction() {
-        const num = document.getElementById('carNumberInput').value;
-        const price = document.getElementById('resPrice').value;
-        if(!num || !price) return alert("زانیارییەکان تەواو نین");
-
-        document.getElementById('saveBtn').disabled = true;
-
-        try {
-            const subColRef = db1.collection("Invoices").doc(today).collection("AllInvoices");
-            const snap = await subColRef.get();
-            const invoiceNo = snap.size + 1;
-
-            const data = {
-                invoiceNo: invoiceNo,
-                carNumber: num,
-                price: price,
-                line: document.getElementById('resLine').value || "پارکینگ",
-                type: document.getElementById('resType').value || "پارکینگ",
-                note: document.getElementById('resNote').value,
-                phone: document.getElementById('resPhone').value || "",
-                employee: currentUser,
-                status: "active",
-                date: new Date().toLocaleString('ku-IQ'),
-                timestamp: firebase.firestore.FieldValue.serverTimestamp()
-            };
-
-            // خەزنکردن لە هەردوو داتابەیس
-            await Promise.all([
-                db1.collection("Invoices").doc(today).collection("AllInvoices").add(data),
-                db2.collection("Invoices").doc(today).collection("AllInvoices").add(data)
-            ]);
-
-            document.getElementById('p-inv-no').innerText = "وەسڵی ژمارە: " + invoiceNo;
-            document.getElementById('p-num').innerText = num;
-            document.getElementById('p-line').innerText = data.line;
-            document.getElementById('p-price').innerText = price + " دینار";
-            document.getElementById('p-user').innerText = "کارمەند: " + currentUser;
-            document.getElementById('p-date').innerText = data.date;
-
-            window.print();
-            resetUI();
-        } catch (e) { alert("هەڵە: " + e.message); }
-        finally { document.getElementById('saveBtn').disabled = false; }
+    function logout() {
+        localStorage.removeItem("terminalUser");
+        currentUser = "";
+        document.getElementById('main-content').style.display = 'none';
+        document.getElementById('login-overlay').style.display = 'flex';
     }
+
+async function handleAction() {
+    const num = document.getElementById('carNumberInput').value;
+    const price = document.getElementById('resPrice').value;
+    if(!num || !price) return alert("تەواو نییە");
+
+    const btn = document.getElementById('saveBtn');
+    btn.disabled = true;
+
+    try {
+        const subColRef = db1.collection("Invoices").doc(today).collection("AllInvoices");
+        const snap = await subColRef.get();
+        const invoiceNo = snap.size + 1;
+
+        const data = {
+            invoiceNo: invoiceNo,
+            carNumber: num,
+            price: price,
+            line: document.getElementById('resLine').value || "پارکینگ",
+            type: document.getElementById('resType').value || "پارکینگ",
+            note: document.getElementById('resNote').value,
+            phone: document.getElementById('resPhone').value || "",
+            employee: currentUser,
+            status: "active",
+            date: new Date().toLocaleString('ku-IQ'),
+            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+        };
+
+        // لێرەدا ئایدییەک دروست دەکەین پێش خەزنکردن
+        const newId = db1.collection("Invoices").doc(today).collection("AllInvoices").doc().id;
+
+        // خەزنکردن لە هەردوو داتابەیس بە هەمان ئایدی (newId)
+        await Promise.all([
+            db1.collection("Invoices").doc(today).collection("AllInvoices").doc(newId).set(data),
+            db2.collection("Invoices").doc(today).collection("AllInvoices").doc(newId).set(data)
+        ]);
+
+        document.getElementById('p-inv-no').innerText = "وەسڵی ژمارە: " + invoiceNo;
+        document.getElementById('p-num').innerText = num;
+        document.getElementById('p-line').innerText = data.line;
+        document.getElementById('p-price').innerText = price + " دینار";
+        document.getElementById('p-user').innerText = "کارمەند: " + currentUser;
+        document.getElementById('p-date').innerText = data.date;
+
+        window.print();
+        resetUI();
+    } catch (e) { alert("هەڵە: " + e.message); }
+    finally { btn.disabled = false; }
+}
+  async function cancelInv(id) {
+    const reason = prompt("هۆکاری سڕینەوە:");
+    if(!reason) return;
+
+    try {
+        // سڕینەوە لە فایەربەیسی دووەم بە هەمان ئایدی
+        await db2.collection("Invoices").doc(today).collection("AllInvoices").doc(id).delete();
+
+        // تەنها گۆڕینی ستاتۆس لە فایەربەیسی یەکەم
+        await db1.collection("Invoices").doc(today).collection("AllInvoices").doc(id).update({
+            status: "canceled",
+            deleteReason: reason
+        });
+
+        alert("وەسڵەکە بە سەرکەوتوویی سڕایەوە");
+        openMyReport();
+        updateStats();
+    } catch (e) { 
+        console.error(e);
+        alert("هەڵە لە سڕینەوە: " + e.message); 
+    }
+}
 
     function resetUI() {
         document.getElementById('carNumberInput').value = "";
         document.getElementById('resPrice').value = "";
         document.getElementById('resNote').value = "";
         document.getElementById('resPhone').value = "";
+        document.getElementById('resType').value = isParking ? "پارکینگ" : "";
+        document.getElementById('resLine').value = isParking ? "پارکینگ" : "";
+        document.getElementById('btnHalf').style.display = "none";
         updateStats();
         document.getElementById('carNumberInput').focus();
     }
 
     async function updateStats() {
-        const snap = await db1.collection("Invoices").doc(today).collection("AllInvoices").where("status", "==", "active").get();
-        let totalM = 0, totalC = 0;
-        snap.forEach(doc => { totalM += parseInt(doc.data().price || 0); totalC++; });
-        document.getElementById('totalCount').innerText = totalC;
-        document.getElementById('totalMoney').innerText = totalM.toLocaleString() + " د.ع";
+        try {
+            const snap = await db1.collection("Invoices").doc(today).collection("AllInvoices").where("status", "==", "active").get();
+            let totalM = 0, totalC = 0;
+            snap.forEach(doc => { totalM += parseInt(doc.data().price || 0); totalC++; });
+            document.getElementById('totalCount').innerText = totalC;
+            document.getElementById('totalMoney').innerText = totalM.toLocaleString() + " د.ع";
+        } catch(e) {}
     }
-
-    function login() {
-        currentUser = document.getElementById('userSelect').value;
-        if(!currentUser) return alert("ناو هەڵبژێرە");
-        localStorage.setItem("terminalUser", currentUser);
-        location.reload();
-    }
-    function logout() { localStorage.removeItem("terminalUser"); location.reload(); }
 
     function searchCarLocally(num) {
         if(isParking || !num) return;
@@ -245,28 +269,18 @@
         tbody.innerHTML = "";
         snap.forEach(doc => {
             const d = doc.data();
-            tbody.innerHTML += `<tr>
+            const isCanceled = d.status === "canceled";
+            tbody.innerHTML += `<tr class="${isCanceled ? 'canceled-row' : ''}">
                 <td>${d.invoiceNo || '-'}</td>
                 <td>${d.date.split(',')[1] || d.date}</td>
                 <td>${d.carNumber}</td>
                 <td>${d.type}</td>
                 <td>${d.line}</td>
                 <td>${d.price}</td>
-                <td>${d.status === "canceled" ? 'سڕاوە' : `<button onclick="cancelInv('${doc.id}')" style="background:red; color:white; padding:3px 7px;">سڕینەوە</button>`}</td>
+                <td>${isCanceled ? 'سڕاوە' : `<button onclick="cancelInv('${doc.id}')" style="background:red; color:white; padding:3px 7px;">سڕینەوە</button>`}</td>
             </tr>`;
         });
         document.getElementById('report-modal').style.display = 'flex';
-    }
-
-    async function cancelInv(id) {
-        const reason = prompt("هۆکاری سڕینەوە:");
-        if(!reason) return;
-        await Promise.all([
-            db1.collection("Invoices").doc(today).collection("AllInvoices").doc(id).update({status: "canceled", deleteReason: reason}),
-            db2.collection("Invoices").doc(today).collection("AllInvoices").doc(id).update({status: "canceled", deleteReason: reason})
-        ]);
-        openMyReport();
-        updateStats();
     }
 
     function toggleParkingMode() {
@@ -275,7 +289,6 @@
         document.getElementById('parking-box').style.display = isParking ? 'block' : 'none';
         document.getElementById('normal-box').style.display = isParking ? 'none' : 'block';
         document.getElementById('resPrice').readOnly = !isParking;
-        if(isParking) { document.getElementById('resLine').value = "پارکینگ"; document.getElementById('resType').value = "پارکینگ"; }
         resetUI();
     }
 
